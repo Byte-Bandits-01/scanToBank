@@ -11,7 +11,7 @@ public class SubmitDisputeFunction {
         @HttpTrigger(
             name = "req",
             methods = {HttpMethod.GET, HttpMethod.POST},
-            authLevel = AuthorizationLevel.FUNCTION)
+            authLevel = AuthorizationLevel.ANONYMOUS)
         HttpRequestMessage<Optional<String>> request,
         final ExecutionContext context) {
 

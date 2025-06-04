@@ -8,17 +8,17 @@ import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-public class GetDisputesFunction {
-    @FunctionName("GetDisputesFunction")
+public class GetTransectionHistoryFunction {
+    @FunctionName("GetTransactionHistoryFunction")
     public HttpResponseMessage run(
-        @HttpTrigger(name = "req", methods = {HttpMethod.GET}, authLevel = AuthorizationLevel.FUNCTION)
+        @HttpTrigger(name = "req", methods = {HttpMethod.GET}, authLevel = AuthorizationLevel.ANONYMOUS)
         HttpRequestMessage<Optional<String>> request,
         final ExecutionContext context) {
 
-        String custId = request.getQueryParameters().get("cust_id");
-        if (custId == null || custId.isEmpty()) {
+        String cis = request.getQueryParameters().get("CIS");
+        if (cis == null || cis.isEmpty()) {
             return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
-                .body("Missing 'cust_id' parameter")
+                .body("Missing 'CIS' parameter")
                 .build();
         }
 
@@ -31,22 +31,26 @@ public class GetDisputesFunction {
                 + "hostNameInCertificate=*.database.windows.net;"
                 + "loginTimeout=30;";
 
-        JSONArray disputeList = new JSONArray();
+        JSONArray transactionList = new JSONArray();
 
         try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
-            String sql = "SELECT dispute_id, transaction_id, reason, status, created_at FROM disputes WHERE cust_id = ?";
+            String sql = "SELECT transaction_id, date, currency, sender, receiver, amount, fee, type, CIS FROM bb_transaction_history WHERE CIS = ?";
             try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, custId);
+                stmt.setString(1, cis);
                 ResultSet rs = stmt.executeQuery();
 
                 while (rs.next()) {
                     JSONObject obj = new JSONObject();
-                    obj.put("dispute_id", rs.getString("dispute_id"));
                     obj.put("transaction_id", rs.getString("transaction_id"));
-                    obj.put("reason", rs.getString("reason"));
-                    obj.put("status", rs.getString("status"));
-                    obj.put("created_at", rs.getString("created_at"));
-                    disputeList.put(obj);
+                    obj.put("date", rs.getString("date"));
+                    obj.put("currency", rs.getString("currency"));
+                    obj.put("sender", rs.getString("sender"));
+                    obj.put("receiver", rs.getString("receiver"));
+                    obj.put("amount", rs.getString("amount"));
+                    obj.put("fee", rs.getString("fee"));
+                    obj.put("type", rs.getString("type"));
+                    obj.put("CIS", rs.getString("CIS"));
+                    transactionList.put(obj);
                 }
             }
 
@@ -59,7 +63,7 @@ public class GetDisputesFunction {
 
         return request.createResponseBuilder(HttpStatus.OK)
             .header("Content-Type", "application/json")
-            .body(disputeList.toString())
+            .body(transactionList.toString())
             .build();
     }
 }
