@@ -1,9 +1,11 @@
 package com.barclays;
 
-import com.microsoft.azure.functions.*;
 import com.microsoft.azure.functions.annotation.*;
+import com.microsoft.azure.functions.*;
 import com.azure.storage.blob.*;
 import com.azure.storage.blob.models.*;
+import org.json.JSONObject;
+
 import java.io.*;
 import java.sql.*;
 import java.time.Instant;
@@ -20,7 +22,7 @@ public class UploadDisclaimerFunction {
         @HttpTrigger(
             name = "req",
             methods = {HttpMethod.POST},
-            authLevel = AuthorizationLevel.FUNCTION,
+            authLevel = AuthorizationLevel.ANONYMOUS,
             dataType = "binary",
             route = "upload-disclaimer")
         HttpRequestMessage<Optional<byte[]>> request,
@@ -29,8 +31,11 @@ public class UploadDisclaimerFunction {
         try {
             String caseId = request.getQueryParameters().get("CaseID");
             if (caseId == null || caseId.isEmpty()) {
+                JSONObject errorResponse = new JSONObject();
+                errorResponse.put("error", "Missing 'CaseID' parameter");
                 return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
-                    .body("Missing 'CaseID' parameter")
+                    .header("Content-Type", "application/json")
+                    .body(errorResponse.toString())
                     .build();
             }
 
@@ -41,8 +46,11 @@ public class UploadDisclaimerFunction {
                     validateStmt.setString(1, caseId);
                     ResultSet rs = validateStmt.executeQuery();
                     if (rs.next() && rs.getInt("count") == 0) {
+                        JSONObject errorResponse = new JSONObject();
+                        errorResponse.put("error", "Invalid 'CaseID': No matching record found in bb_dispute");
                         return request.createResponseBuilder(HttpStatus.BAD_REQUEST)
-                            .body("Invalid 'CaseID': No matching record found in bb_dispute")
+                            .header("Content-Type", "application/json")
+                            .body(errorResponse.toString())
                             .build();
                     }
                 }
@@ -62,41 +70,34 @@ public class UploadDisclaimerFunction {
 
                 String fileUrl = blobClient.getBlobUrl(); // Get the file URL
 
-                // Insert record into bb_casefile
-                String insertQuery = "INSERT INTO bb_casefile (ID, CaseID, FileURL) VALUES (?, ?, ?)";
-                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
-                    int id = generateUniqueId(connection); // Generate a unique ID
-                    insertStmt.setInt(1, id); // Set the ID
-                    insertStmt.setString(2, caseId);
-                    insertStmt.setString(3, fileUrl);
-                    insertStmt.executeUpdate();
+                // Update FileURL in bb_dispute for all rows with the given CaseID
+                String updateQuery = "UPDATE bb_dispute SET FileURL = ? WHERE CaseID = ?";
+                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
+                    updateStmt.setString(1, fileUrl);
+                    updateStmt.setString(2, caseId);
+                    updateStmt.executeUpdate();
                 }
 
-                // Return the file URL in the response
+                // Prepare JSON response
+                JSONObject successResponse = new JSONObject();
+                successResponse.put("message", "File uploaded successfully");
+                successResponse.put("fileUrl", fileUrl);
+
                 return request.createResponseBuilder(HttpStatus.OK)
-                    .body("File uploaded successfully. File URL: " + fileUrl)
+                    .header("Content-Type", "application/json")
+                    .body(successResponse.toString())
                     .build();
             }
 
         } catch (Exception e) {
             context.getLogger().severe("Error: " + e.getMessage());
+            JSONObject errorResponse = new JSONObject();
+            errorResponse.put("error", "Internal server error");
+            errorResponse.put("details", e.getMessage());
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Error: " + e.getMessage())
+                .header("Content-Type", "application/json")
+                .body(errorResponse.toString())
                 .build();
         }
-    }
-
-    /**
-     * Helper method to generate a unique ID for the bb_casefile table.
-     */
-    private int generateUniqueId(Connection connection) throws SQLException {
-        String query = "SELECT MAX(ID) AS maxId FROM bb_casefile";
-        try (PreparedStatement stmt = connection.prepareStatement(query)) {
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt("maxId") + 1; // Increment the maximum ID
-            }
-        }
-        return 1; // Start with 1 if the table is empty
     }
 }
